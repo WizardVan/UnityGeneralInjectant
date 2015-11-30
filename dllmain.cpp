@@ -39,5 +39,6 @@ DWORD WINAPI StartAddress(LPVOID lpParam)
 		mono_security_set_mode = (mono_security_set_mode_t)GetProcAddress(hMono, "mono_security_set_mode");
 		mono_security_set_core_clr_platform_callback = (mono_security_set_core_clr_platform_callback_t)GetProcAddress(hMono, "mono_security_set_core_clr_platform_callback");
 	}
+	return true;
 
 }

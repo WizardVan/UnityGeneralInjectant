@@ -15,59 +15,16 @@
 
 #define MONO_JIT_INFO_TABLE_CHUNK_SIZE		64
 
-typedef struct {
-	gsize size;
-	gsize flags;
-	gsize data[MONO_ZERO_LEN_ARRAY];
-} MonoBitSet;
-
-
-
 typedef struct _MonoMemPool MonoMemPool;
 typedef struct _GHashTable GHashTable;
 typedef struct _MonoImage MonoImage;
 typedef struct _MonoTableInfo MonoTableInfo;
 typedef struct _MonoAssembly MonoAssembly;
 typedef struct _MonoDllMap MonoDllMap;
-
 typedef gpointer(*MonoInternalHashKeyExtractFunc) (gpointer value);
 typedef gpointer* (*MonoInternalHashNextValueFunc) (gpointer value);
-struct _MonoInternalHashTable
-{
-	GHashFunc hash_func;
-	MonoInternalHashKeyExtractFunc key_extract;
-	MonoInternalHashNextValueFunc next_value;
-	gint size;
-	gint num_entries;
-	gpointer *table;
-};
-
-struct MonoVTable {
-	MonoClass  *klass;
-	/*
-	* According to comments in gc_gcj.h, this should be the second word in
-	* the vtable.
-	*/
-	void *gc_descr;
-	MonoDomain *domain;  /* each object/vtable belongs to exactly one domain */
-	gpointer    data; /* to store static class data */
-	gpointer    type; /* System.Type type for klass */
-	guint8     *interface_bitmap;
-	guint16     max_interface_id;
-	guint8      rank;
-	USE_UINT8_BIT_FIELD(guint, remote      : 1); /* class is remotely activated */
-	USE_UINT8_BIT_FIELD(guint, initialized : 1); /* cctor has been run */
-	USE_UINT8_BIT_FIELD(guint, init_failed : 1); /* cctor execution failed */
-	guint32     imt_collisions_bitmap;
-	MonoRuntimeGenericContext *runtime_generic_context;
-	/* do not add any fields after vtable, the structure is dynamically extended */
-	gpointer    vtable[MONO_ZERO_LEN_ARRAY];
-};
 typedef struct _MonoInternalHashTable MonoInternalHashTable;
-
-
 typedef struct _MonoPropertyHash MonoPropertyHash;
-
 typedef struct _Slot Slot;
 typedef struct _MonoDomain MonoDomain;
 typedef struct _MonoCodeManager MonoCodeManager;
@@ -98,16 +55,170 @@ typedef struct _MonoGHashTable  MonoGHashTable;
 typedef struct _MonoJitInfoTable MonoJitInfoTable;
 typedef struct _MonoJitInfoTableChunk MonoJitInfoTableChunk;
 typedef struct _MonoJitInfo MonoJitInfo;
+typedef struct _MonoBitSet MonoBitSet;
+typedef struct _MonoObject MonoObject;
 typedef gboolean(*MonoCoreClrPlatformCB) (const char *image_name);
+typedef struct _MonoVTable MonoVTable;
+typedef struct _MonoAppDomainSetup MonoAppDomainSetup;
+typedef struct _MonoStreamHeader MonoStreamHeader;
+typedef struct _MonoAssemblyName MonoAssemblyName;
+typedef struct _MonoThunkFreeList MonoThunkFreeList;
+typedef struct _MonoMarshalType MonoMarshalType;
+typedef struct _MonoGenericParamFull MonoGenericParamFull;
+typedef struct _MonoGenericParamInfo MonoGenericParamInfo;
+typedef struct _MonoCustomMod MonoCustomMod;
+typedef struct _MonoMarshalField MonoMarshalField;
+typedef struct _MonoMarshalSpec MonoMarshalSpec;
+typedef enum _MonoMarshalNative MonoMarshalNative;
+typedef enum _MonoMarshalVariant MonoMarshalVariant;
+typedef struct _MonoClassRuntimeInfo MonoClassRuntimeInfo;
+typedef struct _MonoClassExt MonoClassExt;
+typedef struct _MonoFieldDefaultValue MonoFieldDefaultValue;
+typedef struct _MonoString MonoString;
+typedef struct _MonoArray MonoArray;
+typedef struct _MonoArrayBounds MonoArrayBounds;
+typedef struct _MonoMarshalByRefObject MonoMarshalByRefObject;
+typedef enum _MonoGHashGCType MonoGHashGCType;
+typedef struct _MonoJitExceptionInfo MonoJitExceptionInfo;
+typedef enum _MonoImageOpenStatus MonoImageOpenStatus;
+typedef enum _MonoSecurityMode MonoSecurityMode;
 
-extern struct MonoVTable;
+struct _MonoBitSet{
+	gsize size;
+	gsize flags;
+	gsize data[MONO_ZERO_LEN_ARRAY];
+} ;
 
-typedef struct {
+struct _MonoStreamHeader{
+	const char* data;
+	guint32  size;
+};
+
+struct _MonoTableInfo {
+	const char *base;
+	guint       rows : 24;
+	guint       row_size : 8;
+
+	/*
+	* Tables contain up to 9 columns and the possible sizes of the
+	* fields in the documentation are 1, 2 and 4 bytes.  So we
+	* can encode in 2 bits the size.
+	*
+	* A 32 bit value can encode the resulting size
+	*
+	* The top eight bits encode the number of columns in the table.
+	* we only need 4, but 8 is aligned no shift required.
+	*/
+	guint32   size_bitfield;
+};
+
+struct _MonoAssemblyName{
+	const char *name;
+	const char *culture;
+	const char *hash_value;
+	const guint8* public_key;
+	// string of 16 hex chars + 1 NULL
+	guchar public_key_token[MONO_PUBLIC_KEY_TOKEN_LENGTH];
+	guint32 hash_alg;
+	guint32 hash_len;
+	guint32 flags;
+	guint16 major, minor, build, revision;
+};
+
+struct _MonoDllMap {
+	char *dll;
+	char *target;
+	char *func;
+	char *target_func;
+	MonoDllMap *next;
+};
+
+struct _Slot {
+	gpointer key;
+	gpointer value;
+	Slot    *next;
+};
+
+struct _MonoThunkFreeList {
+	guint32 size;
+	int length;		/* only valid for the wait list */
+	MonoThunkFreeList *next;
+};
+
+struct _CodeChunck {
+	char *data;
+	int pos;
+	int size;
+	CodeChunk *next;
+	unsigned int flags : 8;
+	/* this number of bytes is available to resolve addresses far in memory */
+	unsigned int bsize : 24;
+};
+
+struct _MonoCodeManager {
+	int dynamic;
+	int read_only;
+	CodeChunk *current;
+	CodeChunk *full;
+};
+
+struct _MonoThreadsSync
+{
+	gsize owner;			/* thread ID */
+	guint32 nest;
+#ifdef HAVE_MOVING_COLLECTOR
+	gint32 hash_code;
+#endif
+	volatile gint32 entry_count;
+	HANDLE entry_sem;
+	GSList *wait_list;
+	void *data;
+};
+
+struct _GList {
+	gpointer data;
+	GList *next;
+	GList *prev;
+};
+
+struct _MonoInternalHashTable
+{
+	GHashFunc hash_func;
+	MonoInternalHashKeyExtractFunc key_extract;
+	MonoInternalHashNextValueFunc next_value;
+	gint size;
+	gint num_entries;
+	gpointer *table;
+};
+
+struct _MonoVTable {
+	MonoClass  *klass;
+	/*
+	* According to comments in gc_gcj.h, this should be the second word in
+	* the vtable.
+	*/
+	void *gc_descr;
+	MonoDomain *domain;  /* each object/vtable belongs to exactly one domain */
+	gpointer    data; /* to store static class data */
+	gpointer    type; /* System.Type type for klass */
+	guint8     *interface_bitmap;
+	guint16     max_interface_id;
+	guint8      rank;
+	USE_UINT8_BIT_FIELD(guint, remote      : 1); /* class is remotely activated */
+	USE_UINT8_BIT_FIELD(guint, initialized : 1); /* cctor has been run */
+	USE_UINT8_BIT_FIELD(guint, init_failed : 1); /* cctor execution failed */
+	guint32     imt_collisions_bitmap;
+	MonoRuntimeGenericContext *runtime_generic_context;
+	/* do not add any fields after vtable, the structure is dynamically extended */
+	gpointer    vtable[MONO_ZERO_LEN_ARRAY];
+};
+
+struct _MonoObject{
 	MonoVTable *vtable;
 	MonoThreadsSync *synchronisation;
-} MonoObject;
+} ;
 
-typedef struct {
+struct _MonoAppDomainSetup{
 	MonoObject object;
 	MonoString *application_base;
 	MonoString *application_name;
@@ -130,13 +241,7 @@ typedef struct {
 	MonoObject *application_trust; /* it is System.Object in 1.x, ApplicationTrust in 2.0 */
 	MonoBoolean disallow_appbase_probe;
 	MonoArray *configuration_bytes;
-} MonoAppDomainSetup;
-
-typedef struct {
-	const char* data;
-	guint32  size;
-} MonoStreamHeader;
-
+} ;
 
 
 #ifdef MALLOC_ALLOCATION
@@ -161,39 +266,6 @@ struct _MonoMemPool {
 	} d;
 };
 #endif
-
-
-struct _MonoTableInfo {
-	const char *base;
-	guint       rows : 24;
-	guint       row_size : 8;
-
-	/*
-	* Tables contain up to 9 columns and the possible sizes of the
-	* fields in the documentation are 1, 2 and 4 bytes.  So we
-	* can encode in 2 bits the size.
-	*
-	* A 32 bit value can encode the resulting size
-	*
-	* The top eight bits encode the number of columns in the table.
-	* we only need 4, but 8 is aligned no shift required.
-	*/
-	guint32   size_bitfield;
-};
-
-typedef struct {
-	const char *name;
-	const char *culture;
-	const char *hash_value;
-	const guint8* public_key;
-	// string of 16 hex chars + 1 NULL
-	guchar public_key_token[MONO_PUBLIC_KEY_TOKEN_LENGTH];
-	guint32 hash_alg;
-	guint32 hash_len;
-	guint32 flags;
-	guint16 major, minor, build, revision;
-} MonoAssemblyName;
-
 
 
 
@@ -223,8 +295,6 @@ struct _MonoAssembly {
 	guint32 unmanaged : 2;	/* Has SecurityPermissionFlag.UnmanagedCode permission */
 	guint32 skipverification : 2;	/* Has SecurityPermissionFlag.SkipVerification permission */
 };
-
-
 
 struct _MonoImage {
 	/*
@@ -418,14 +488,6 @@ struct _MonoImage {
 	CRITICAL_SECTION    lock;
 };
 
-struct _MonoDllMap {
-	char *dll;
-	char *target;
-	char *func;
-	char *target_func;
-	MonoDllMap *next;
-};
-
 struct _MonoPropertyHash {
 	/* We use one hash table per property */
 	GHashTable *hashes;
@@ -443,11 +505,6 @@ struct _GHashTable {
 	GDestroyNotify value_destroy_func, key_destroy_func;
 };
 
-struct _Slot {
-	gpointer key;
-	gpointer value;
-	Slot    *next;
-};
 
 struct _MonoDomain {
 	/*
@@ -567,41 +624,437 @@ struct _MonoDomain {
 	MonoClass           **static_data_class_array;
 };
 
-typedef struct _MonoThunkFreeList {
-	guint32 size;
-	int length;		/* only valid for the wait list */
-	struct _MonoThunkFreeList *next;
-} MonoThunkFreeList;
 
-struct _MonoCodeManager {
-	int dynamic;
-	int read_only;
-	CodeChunk *current;
-	CodeChunk *full;
+
+
+
+
+
+struct _MonoClassField {
+	/* Type of the field */
+	MonoType        *type;
+
+	const char      *name;
+
+	/* Type where the field was defined */
+	MonoClass       *parent;
+
+	/*
+	* Offset where this field is stored; if it is an instance
+	* field, it's the offset from the start of the object, if
+	* it's static, it's from the start of the memory chunk
+	* allocated for statics for the class.
+	* For special static fields, this is set to -1 during vtable construction.
+	*/
+	int              offset;
 };
 
-struct _CodeChunck {
-	char *data;
-	int pos;
-	int size;
-	CodeChunk *next;
-	unsigned int flags : 8;
-	/* this number of bytes is available to resolve addresses far in memory */
-	unsigned int bsize : 24;
+struct _MonoMethod {
+	guint16 flags;  /* method flags */
+	guint16 iflags; /* method implementation flags */
+	guint32 token;
+	MonoClass *klass;
+	MonoMethodSignature *signature;
+	/* name is useful mostly for debugging */
+	const char *name;
+	/* this is used by the inlining algorithm */
+	unsigned int inline_info : 1;
+	unsigned int inline_failure : 1;
+	unsigned int wrapper_type : 5;
+	unsigned int string_ctor : 1;
+	unsigned int save_lmf : 1;
+	unsigned int dynamic : 1; /* created & destroyed during runtime */
+	unsigned int is_generic : 1; /* whenever this is a generic method definition */
+	unsigned int is_inflated : 1; /* whether we're a MonoMethodInflated */
+	unsigned int skip_visibility : 1; /* whenever to skip JIT visibility checks */
+	unsigned int verification_success : 1; /* whether this method has been verified successfully.*/
+	/* TODO we MUST get rid of this field, it's an ugly hack nobody is proud of. */
+	unsigned int is_mb_open : 1;		/* This is the fully open instantiation of a generic method_builder. Worse than is_tb_open, but it's temporary */
+	signed int slot : 17;
+
+	/*
+	* If is_generic is TRUE, the generic_container is stored in image->property_hash,
+	* using the key MONO_METHOD_PROP_GENERIC_CONTAINER.
+	*/
+};
+
+struct _MonoMethodSignature {
+	unsigned int  hasthis : 1;
+	unsigned int  explicit_this : 1;
+	unsigned int  call_convention : 6;
+	unsigned int  pinvoke : 1;
+	unsigned int  ref_count : 23;
+	guint16       param_count;
+	gint16        sentinelpos;
+	unsigned int  generic_param_count : 30;
+	unsigned int  is_inflated : 1;
+	unsigned int  has_type_parameters : 1;
+	MonoType     *ret;
+	MonoType     *params[MONO_ZERO_LEN_ARRAY];
 };
 
 
-struct _MonoThreadsSync
+struct _MonoArrayType {
+	MonoClass *eklass;
+	guint8 rank;
+	guint8 numsizes;
+	guint8 numlobounds;
+	int *sizes;
+	int *lobounds;
+};
+
+struct _MonoGenericParam {
+	MonoGenericContainer *owner;	/* Type or method this parameter was defined in. */
+	guint16 num;
+	/*
+	* If owner is NULL, or owner is 'owned' by this gparam,
+	* then this is the image whose mempool this struct was allocated from.
+	* The second case happens for gparams created in
+	* mono_reflection_initialize_generic_parameter ().
+	*/
+	MonoImage *image;
+};
+
+
+struct _MonoGenericContext {
+	/* The instantiation corresponding to the class generic parameters */
+	MonoGenericInst *class_inst;
+	/* The instantiation corresponding to the method generic parameters */
+	MonoGenericInst *method_inst;
+};
+
+struct _MonoGenericInst {
+	guint id;			/* unique ID for debugging */
+	guint type_argc : 22;	/* number of type arguments */
+	guint is_open : 1;	/* if this is an open type */
+	MonoType *type_argv[MONO_ZERO_LEN_ARRAY];
+};
+
+
+struct _MonoGenericParamInfo{
+	MonoClass *pklass;		/* The corresponding `MonoClass'. */
+	const char *name;
+	guint16 flags;
+	guint32 token;
+	MonoClass** constraints; /* NULL means end of list */
+} ;
+
+struct _MonoGenericClass {
+	MonoClass *container_class;	/* the generic type definition */
+	MonoGenericContext context;	/* a context that contains the type instantiation doesn't contain any method instantiation */
+	guint is_dynamic : 1;		/* We're a MonoDynamicGenericClass */
+	guint is_tb_open : 1;		/* This is the fully open instantiation for a type_builder. Quite ugly, but it's temporary.*/
+	MonoClass *cached_class;	/* if present, the MonoClass corresponding to the instantiation.  */
+};
+
+struct _MonoCustomMod{
+	unsigned int required : 1;
+	unsigned int token : 31;
+} ;
+
+struct _MonoMarshalField{
+	MonoClassField *field;
+	guint32 offset;
+	MonoMarshalSpec *mspec;
+} ;
+
+struct _MonoMarshalSpec{
+	MonoMarshalNative native;
+	union {
+		struct {
+			MonoMarshalNative elem_type;
+			gint32 num_elem; /* -1 if not set */
+			gint16 param_num; /* -1 if not set */
+			gint16 elem_mult; /* -1 if not set */
+		} array_data;
+		struct {
+			char *custom_name;
+			char *cookie;
+		} custom_data;
+		struct {
+			MonoMarshalVariant elem_type;
+			gint32 num_elem;
+		} safearray_data;
+	} data;
+} ;
+
+enum _MonoMarshalNative{
+	MONO_NATIVE_BOOLEAN = 0x02, /* 4 bytes, 0 is false, != 0 is true */
+	MONO_NATIVE_I1 = 0x03,
+	MONO_NATIVE_U1 = 0x04,
+	MONO_NATIVE_I2 = 0x05,
+	MONO_NATIVE_U2 = 0x06,
+	MONO_NATIVE_I4 = 0x07,
+	MONO_NATIVE_U4 = 0x08,
+	MONO_NATIVE_I8 = 0x09,
+	MONO_NATIVE_U8 = 0x0a,
+	MONO_NATIVE_R4 = 0x0b,
+	MONO_NATIVE_R8 = 0x0c,
+	MONO_NATIVE_CURRENCY = 0x0f,
+	MONO_NATIVE_BSTR = 0x13, /* prefixed length, Unicode */
+	MONO_NATIVE_LPSTR = 0x14, /* ANSI, null terminated */
+	MONO_NATIVE_LPWSTR = 0x15, /* UNICODE, null terminated */
+	MONO_NATIVE_LPTSTR = 0x16, /* plattform dep., null terminated */
+	MONO_NATIVE_BYVALTSTR = 0x17,
+	MONO_NATIVE_IUNKNOWN = 0x19,
+	MONO_NATIVE_IDISPATCH = 0x1a,
+	MONO_NATIVE_STRUCT = 0x1b,
+	MONO_NATIVE_INTERFACE = 0x1c,
+	MONO_NATIVE_SAFEARRAY = 0x1d,
+	MONO_NATIVE_BYVALARRAY = 0x1e,
+	MONO_NATIVE_INT = 0x1f,
+	MONO_NATIVE_UINT = 0x20,
+	MONO_NATIVE_VBBYREFSTR = 0x22,
+	MONO_NATIVE_ANSIBSTR = 0x23,  /* prefixed length, ANSI */
+	MONO_NATIVE_TBSTR = 0x24, /* prefixed length, plattform dep. */
+	MONO_NATIVE_VARIANTBOOL = 0x25,
+	MONO_NATIVE_FUNC = 0x26,
+	MONO_NATIVE_ASANY = 0x28,
+	MONO_NATIVE_LPARRAY = 0x2a,
+	MONO_NATIVE_LPSTRUCT = 0x2b,
+	MONO_NATIVE_CUSTOM = 0x2c,
+	MONO_NATIVE_ERROR = 0x2d,
+	MONO_NATIVE_MAX = 0x50 /* no info */
+};
+
+enum _MonoMarshalVariant{
+	MONO_VARIANT_EMPTY = 0x00,
+	MONO_VARIANT_NULL = 0x01,
+	MONO_VARIANT_I2 = 0x02,
+	MONO_VARIANT_I4 = 0x03,
+	MONO_VARIANT_R4 = 0x04,
+	MONO_VARIANT_R8 = 0x05,
+	MONO_VARIANT_CY = 0x06,
+	MONO_VARIANT_DATE = 0x07,
+	MONO_VARIANT_BSTR = 0x08,
+	MONO_VARIANT_DISPATCH = 0x09,
+	MONO_VARIANT_ERROR = 0x0a,
+	MONO_VARIANT_BOOL = 0x0b,
+	MONO_VARIANT_VARIANT = 0x0c,
+	MONO_VARIANT_UNKNOWN = 0x0d,
+	MONO_VARIANT_DECIMAL = 0x0e,
+	MONO_VARIANT_I1 = 0x10,
+	MONO_VARIANT_UI1 = 0x11,
+	MONO_VARIANT_UI2 = 0x12,
+	MONO_VARIANT_UI4 = 0x13,
+	MONO_VARIANT_I8 = 0x14,
+	MONO_VARIANT_UI8 = 0x15,
+	MONO_VARIANT_INT = 0x16,
+	MONO_VARIANT_UINT = 0x17,
+	MONO_VARIANT_VOID = 0x18,
+	MONO_VARIANT_HRESULT = 0x19,
+	MONO_VARIANT_PTR = 0x1a,
+	MONO_VARIANT_SAFEARRAY = 0x1b,
+	MONO_VARIANT_CARRAY = 0x1c,
+	MONO_VARIANT_USERDEFINED = 0x1d,
+	MONO_VARIANT_LPSTR = 0x1e,
+	MONO_VARIANT_LPWSTR = 0x1f,
+	MONO_VARIANT_RECORD = 0x24,
+	MONO_VARIANT_FILETIME = 0x40,
+	MONO_VARIANT_BLOB = 0x41,
+	MONO_VARIANT_STREAM = 0x42,
+	MONO_VARIANT_STORAGE = 0x43,
+	MONO_VARIANT_STREAMED_OBJECT = 0x44,
+	MONO_VARIANT_STORED_OBJECT = 0x45,
+	MONO_VARIANT_BLOB_OBJECT = 0x46,
+	MONO_VARIANT_CF = 0x47,
+	MONO_VARIANT_CLSID = 0x48,
+	MONO_VARIANT_VECTOR = 0x1000,
+	MONO_VARIANT_ARRAY = 0x2000,
+	MONO_VARIANT_BYREF = 0x4000
+} ;
+
+struct _MonoClassRuntimeInfo{
+	guint16 max_domain;
+	/* domain_vtables is indexed by the domain id and the size is max_domain + 1 */
+	MonoVTable *domain_vtables[MONO_ZERO_LEN_ARRAY];
+} ;
+
+struct _MonoClassExt{
+	struct {
+		guint32 first, count;
+	} property, event;
+
+	/* Initialized by a call to mono_class_setup_properties () */
+	MonoProperty *properties;
+
+	/* Initialized by a call to mono_class_setup_events () */
+	MonoEvent *events;
+
+	guint32    declsec_flags;	/* declarative security attributes flags */
+
+	/* Default values/RVA for fields */
+	/* Accessed using mono_class_get_field_default_value () / mono_field_get_data () */
+	MonoFieldDefaultValue *field_def_values;
+
+	GList      *nested_classes;
+} ;
+
+struct _MonoProperty {
+	MonoClass *parent;
+	const char *name;
+	MonoMethod *get;
+	MonoMethod *set;
+	guint32 attrs;
+};
+
+struct _MonoEvent {
+	MonoClass *parent;
+	const char *name;
+	MonoMethod *add;
+	MonoMethod *remove;
+	MonoMethod *raise;
+	MonoMethod **other;
+	guint32 attrs;
+};
+
+struct _MonoFieldDefaultValue {
+	/*
+	* If the field is constant, pointer to the metadata constant
+	* value.
+	* If the field has an RVA flag, pointer to the data.
+	* Else, invalid.
+	*/
+	const char      *data;
+
+	/* If the field is constant, the type of the constant. */
+	MonoTypeEnum     def_type;
+} ;
+
+
+struct _MonoString{
+	MonoObject object;
+	gint32 length;
+	gunichar2 chars[MONO_ZERO_LEN_ARRAY];
+};
+
+struct _MonoArray{
+	MonoObject obj;
+	/* bounds is NULL for szarrays */
+	MonoArrayBounds *bounds;
+	/* total number of elements of the array */
+	mono_array_size_t max_length;
+	/* we use double to ensure proper alignment on platforms that need it */
+	double vector[MONO_ZERO_LEN_ARRAY];
+};
+
+struct _MonoArrayBounds{
+	mono_array_size_t length;
+	mono_array_lower_bound_t lower_bound;
+} ;
+
+
+struct _MonoMarshalByRefObject{
+	MonoObject obj;
+	MonoObject *identity;
+} ;
+
+struct _MonoAppContext {
+	MonoObject obj;
+	gint32 domain_id;
+	gint32 context_id;
+	gpointer *static_data;
+};
+
+struct _MonoException {
+	MonoObject object;
+	/* Stores the IPs and the generic sharing infos
+	(vtable/MRGCTX) of the frames. */
+	MonoArray  *trace_ips;
+	MonoObject *inner_ex;
+	MonoString *message;
+	MonoString *help_link;
+	MonoString *class_name;
+	MonoString *stack_trace;
+	MonoString *remote_stack_trace;
+	gint32	    remote_stack_index;
+	gint32	    hresult;
+	MonoString *source;
+	MonoObject *_data;
+};
+
+struct _MonoGHashTable {
+	GHashFunc      hash_func;
+	GEqualFunc     key_equal_func;
+
+	Slot **table;
+	int   table_size;
+	int   in_use;
+	int   threshold;
+	int   last_rehash;
+	GDestroyNotify value_destroy_func, key_destroy_func;
+	MonoGHashGCType gc_type;
+};
+
+enum _MonoGHashGCType{
+	MONO_HASH_CONSERVATIVE_GC,
+	MONO_HASH_KEY_GC,
+	MONO_HASH_VALUE_GC,
+	MONO_HASH_KEY_VALUE_GC /* note this is the OR of the other two values */
+} ;
+
+struct _MonoJitInfoTable
 {
-	gsize owner;			/* thread ID */
-	guint32 nest;
-#ifdef HAVE_MOVING_COLLECTOR
-	gint32 hash_code;
-#endif
-	volatile gint32 entry_count;
-	HANDLE entry_sem;
-	GSList *wait_list;
-	void *data;
+	MonoDomain	       *domain;
+	int			num_chunks;
+	MonoJitInfoTableChunk  *chunks[MONO_ZERO_LEN_ARRAY];
+};
+
+struct _MonoJitInfoTableChunk
+{
+	int		       refcount;
+	volatile int           num_elements;
+	volatile gint8        *last_code_end;
+	MonoJitInfo * volatile data[MONO_JIT_INFO_TABLE_CHUNK_SIZE];
+};
+
+
+struct _MonoJitExceptionInfo{
+	guint32  flags;
+	gint32   exvar_offset;
+	gpointer try_start;
+	gpointer try_end;
+	gpointer handler_start;
+	union {
+		MonoClass *catch_class;
+		gpointer filter;
+	} data;
+} ;
+
+enum _MonoImageOpenStatus{
+	MONO_IMAGE_OK,
+	MONO_IMAGE_ERROR_ERRNO,
+	MONO_IMAGE_MISSING_ASSEMBLYREF,
+	MONO_IMAGE_IMAGE_INVALID
+};
+
+enum _MonoSecurityMode{
+	MONO_SECURITY_MODE_NONE,
+	MONO_SECURITY_MODE_CORE_CLR,
+	MONO_SECURITY_MODE_CAS,
+	MONO_SECURITY_MODE_SMCS_HACK
+};
+
+struct _MonoAppDomain {
+	MonoMarshalByRefObject mbr;
+	MonoDomain *data;
+};
+
+struct _MonoType {
+	union {
+		MonoClass *klass; /* for VALUETYPE and CLASS */
+		_MonoType *type;   /* for PTR */
+		MonoArrayType *array; /* for ARRAY */
+		MonoMethodSignature *method;
+		MonoGenericParam *generic_param; /* for VAR and MVAR */
+		MonoGenericClass *generic_class; /* for GENERICINST */
+	} data;
+	unsigned int attrs : 16; /* param attributes or field flags */
+	MonoTypeEnum type : 8;
+	unsigned int num_mods : 6;  /* max 64 modifiers follow at the end */
+	unsigned int byref : 1;
+	unsigned int pinned : 1;  /* valid when included in a local var signature */
+	MonoCustomMod modifiers[MONO_ZERO_LEN_ARRAY]; /* this may grow */
 };
 
 struct _MonoClass {
@@ -741,115 +1194,6 @@ struct _MonoClass {
 	MonoClassExt *ext;
 };
 
-typedef struct {
-	guint32 native_size, min_align;
-	guint32 num_fields;
-	MonoMethod *ptr_to_str;
-	MonoMethod *str_to_ptr;
-	MonoMarshalField fields[MONO_ZERO_LEN_ARRAY];
-} MonoMarshalType;
-
-struct _MonoClassField {
-	/* Type of the field */
-	MonoType        *type;
-
-	const char      *name;
-
-	/* Type where the field was defined */
-	MonoClass       *parent;
-
-	/*
-	* Offset where this field is stored; if it is an instance
-	* field, it's the offset from the start of the object, if
-	* it's static, it's from the start of the memory chunk
-	* allocated for statics for the class.
-	* For special static fields, this is set to -1 during vtable construction.
-	*/
-	int              offset;
-};
-
-struct _MonoMethod {
-	guint16 flags;  /* method flags */
-	guint16 iflags; /* method implementation flags */
-	guint32 token;
-	MonoClass *klass;
-	MonoMethodSignature *signature;
-	/* name is useful mostly for debugging */
-	const char *name;
-	/* this is used by the inlining algorithm */
-	unsigned int inline_info : 1;
-	unsigned int inline_failure : 1;
-	unsigned int wrapper_type : 5;
-	unsigned int string_ctor : 1;
-	unsigned int save_lmf : 1;
-	unsigned int dynamic : 1; /* created & destroyed during runtime */
-	unsigned int is_generic : 1; /* whenever this is a generic method definition */
-	unsigned int is_inflated : 1; /* whether we're a MonoMethodInflated */
-	unsigned int skip_visibility : 1; /* whenever to skip JIT visibility checks */
-	unsigned int verification_success : 1; /* whether this method has been verified successfully.*/
-	/* TODO we MUST get rid of this field, it's an ugly hack nobody is proud of. */
-	unsigned int is_mb_open : 1;		/* This is the fully open instantiation of a generic method_builder. Worse than is_tb_open, but it's temporary */
-	signed int slot : 17;
-
-	/*
-	* If is_generic is TRUE, the generic_container is stored in image->property_hash,
-	* using the key MONO_METHOD_PROP_GENERIC_CONTAINER.
-	*/
-};
-
-struct _MonoMethodSignature {
-	unsigned int  hasthis : 1;
-	unsigned int  explicit_this : 1;
-	unsigned int  call_convention : 6;
-	unsigned int  pinvoke : 1;
-	unsigned int  ref_count : 23;
-	guint16       param_count;
-	gint16        sentinelpos;
-	unsigned int  generic_param_count : 30;
-	unsigned int  is_inflated : 1;
-	unsigned int  has_type_parameters : 1;
-	MonoType     *ret;
-	MonoType     *params[MONO_ZERO_LEN_ARRAY];
-};
-
-struct _MonoType {
-	union {
-		MonoClass *klass; /* for VALUETYPE and CLASS */
-		MonoType *type;   /* for PTR */
-		MonoArrayType *array; /* for ARRAY */
-		MonoMethodSignature *method;
-		MonoGenericParam *generic_param; /* for VAR and MVAR */
-		MonoGenericClass *generic_class; /* for GENERICINST */
-	} data;
-	unsigned int attrs : 16; /* param attributes or field flags */
-	MonoTypeEnum type : 8;
-	unsigned int num_mods : 6;  /* max 64 modifiers follow at the end */
-	unsigned int byref : 1;
-	unsigned int pinned : 1;  /* valid when included in a local var signature */
-	MonoCustomMod modifiers[MONO_ZERO_LEN_ARRAY]; /* this may grow */
-};
-
-struct _MonoArrayType {
-	MonoClass *eklass;
-	guint8 rank;
-	guint8 numsizes;
-	guint8 numlobounds;
-	int *sizes;
-	int *lobounds;
-};
-
-struct _MonoGenericParam {
-	MonoGenericContainer *owner;	/* Type or method this parameter was defined in. */
-	guint16 num;
-	/*
-	* If owner is NULL, or owner is 'owned' by this gparam,
-	* then this is the image whose mempool this struct was allocated from.
-	* The second case happens for gparams created in
-	* mono_reflection_initialize_generic_parameter ().
-	*/
-	MonoImage *image;
-};
-
 struct _MonoGenericContainer {
 	MonoGenericContext context;
 	/* If we're a generic method definition in a generic type definition,
@@ -874,311 +1218,9 @@ struct _MonoGenericContainer {
 	MonoImage *image;
 };
 
-struct _MonoGenericContext {
-	/* The instantiation corresponding to the class generic parameters */
-	MonoGenericInst *class_inst;
-	/* The instantiation corresponding to the method generic parameters */
-	MonoGenericInst *method_inst;
-};
-
-struct _MonoGenericInst {
-	guint id;			/* unique ID for debugging */
-	guint type_argc : 22;	/* number of type arguments */
-	guint is_open : 1;	/* if this is an open type */
-	MonoType *type_argv[MONO_ZERO_LEN_ARRAY];
-};
-
-typedef struct {
+struct _MonoGenericParamFull{
 	MonoGenericParam param;
 	MonoGenericParamInfo info;
-} MonoGenericParamFull;
-
-typedef struct {
-	MonoClass *pklass;		/* The corresponding `MonoClass'. */
-	const char *name;
-	guint16 flags;
-	guint32 token;
-	MonoClass** constraints; /* NULL means end of list */
-} MonoGenericParamInfo;
-
-struct _MonoGenericClass {
-	MonoClass *container_class;	/* the generic type definition */
-	MonoGenericContext context;	/* a context that contains the type instantiation doesn't contain any method instantiation */
-	guint is_dynamic : 1;		/* We're a MonoDynamicGenericClass */
-	guint is_tb_open : 1;		/* This is the fully open instantiation for a type_builder. Quite ugly, but it's temporary.*/
-	MonoClass *cached_class;	/* if present, the MonoClass corresponding to the instantiation.  */
-};
-
-typedef struct {
-	unsigned int required : 1;
-	unsigned int token : 31;
-} MonoCustomMod;
-
-typedef struct {
-	MonoClassField *field;
-	guint32 offset;
-	MonoMarshalSpec *mspec;
-} MonoMarshalField;
-
-typedef struct {
-	MonoMarshalNative native;
-	union {
-		struct {
-			MonoMarshalNative elem_type;
-			gint32 num_elem; /* -1 if not set */
-			gint16 param_num; /* -1 if not set */
-			gint16 elem_mult; /* -1 if not set */
-		} array_data;
-		struct {
-			char *custom_name;
-			char *cookie;
-		} custom_data;
-		struct {
-			MonoMarshalVariant elem_type;
-			gint32 num_elem;
-		} safearray_data;
-	} data;
-} MonoMarshalSpec;
-
-typedef enum {
-	MONO_NATIVE_BOOLEAN = 0x02, /* 4 bytes, 0 is false, != 0 is true */
-	MONO_NATIVE_I1 = 0x03,
-	MONO_NATIVE_U1 = 0x04,
-	MONO_NATIVE_I2 = 0x05,
-	MONO_NATIVE_U2 = 0x06,
-	MONO_NATIVE_I4 = 0x07,
-	MONO_NATIVE_U4 = 0x08,
-	MONO_NATIVE_I8 = 0x09,
-	MONO_NATIVE_U8 = 0x0a,
-	MONO_NATIVE_R4 = 0x0b,
-	MONO_NATIVE_R8 = 0x0c,
-	MONO_NATIVE_CURRENCY = 0x0f,
-	MONO_NATIVE_BSTR = 0x13, /* prefixed length, Unicode */
-	MONO_NATIVE_LPSTR = 0x14, /* ANSI, null terminated */
-	MONO_NATIVE_LPWSTR = 0x15, /* UNICODE, null terminated */
-	MONO_NATIVE_LPTSTR = 0x16, /* plattform dep., null terminated */
-	MONO_NATIVE_BYVALTSTR = 0x17,
-	MONO_NATIVE_IUNKNOWN = 0x19,
-	MONO_NATIVE_IDISPATCH = 0x1a,
-	MONO_NATIVE_STRUCT = 0x1b,
-	MONO_NATIVE_INTERFACE = 0x1c,
-	MONO_NATIVE_SAFEARRAY = 0x1d,
-	MONO_NATIVE_BYVALARRAY = 0x1e,
-	MONO_NATIVE_INT = 0x1f,
-	MONO_NATIVE_UINT = 0x20,
-	MONO_NATIVE_VBBYREFSTR = 0x22,
-	MONO_NATIVE_ANSIBSTR = 0x23,  /* prefixed length, ANSI */
-	MONO_NATIVE_TBSTR = 0x24, /* prefixed length, plattform dep. */
-	MONO_NATIVE_VARIANTBOOL = 0x25,
-	MONO_NATIVE_FUNC = 0x26,
-	MONO_NATIVE_ASANY = 0x28,
-	MONO_NATIVE_LPARRAY = 0x2a,
-	MONO_NATIVE_LPSTRUCT = 0x2b,
-	MONO_NATIVE_CUSTOM = 0x2c,
-	MONO_NATIVE_ERROR = 0x2d,
-	MONO_NATIVE_MAX = 0x50 /* no info */
-} MonoMarshalNative;
-
-typedef enum {
-	MONO_VARIANT_EMPTY = 0x00,
-	MONO_VARIANT_NULL = 0x01,
-	MONO_VARIANT_I2 = 0x02,
-	MONO_VARIANT_I4 = 0x03,
-	MONO_VARIANT_R4 = 0x04,
-	MONO_VARIANT_R8 = 0x05,
-	MONO_VARIANT_CY = 0x06,
-	MONO_VARIANT_DATE = 0x07,
-	MONO_VARIANT_BSTR = 0x08,
-	MONO_VARIANT_DISPATCH = 0x09,
-	MONO_VARIANT_ERROR = 0x0a,
-	MONO_VARIANT_BOOL = 0x0b,
-	MONO_VARIANT_VARIANT = 0x0c,
-	MONO_VARIANT_UNKNOWN = 0x0d,
-	MONO_VARIANT_DECIMAL = 0x0e,
-	MONO_VARIANT_I1 = 0x10,
-	MONO_VARIANT_UI1 = 0x11,
-	MONO_VARIANT_UI2 = 0x12,
-	MONO_VARIANT_UI4 = 0x13,
-	MONO_VARIANT_I8 = 0x14,
-	MONO_VARIANT_UI8 = 0x15,
-	MONO_VARIANT_INT = 0x16,
-	MONO_VARIANT_UINT = 0x17,
-	MONO_VARIANT_VOID = 0x18,
-	MONO_VARIANT_HRESULT = 0x19,
-	MONO_VARIANT_PTR = 0x1a,
-	MONO_VARIANT_SAFEARRAY = 0x1b,
-	MONO_VARIANT_CARRAY = 0x1c,
-	MONO_VARIANT_USERDEFINED = 0x1d,
-	MONO_VARIANT_LPSTR = 0x1e,
-	MONO_VARIANT_LPWSTR = 0x1f,
-	MONO_VARIANT_RECORD = 0x24,
-	MONO_VARIANT_FILETIME = 0x40,
-	MONO_VARIANT_BLOB = 0x41,
-	MONO_VARIANT_STREAM = 0x42,
-	MONO_VARIANT_STORAGE = 0x43,
-	MONO_VARIANT_STREAMED_OBJECT = 0x44,
-	MONO_VARIANT_STORED_OBJECT = 0x45,
-	MONO_VARIANT_BLOB_OBJECT = 0x46,
-	MONO_VARIANT_CF = 0x47,
-	MONO_VARIANT_CLSID = 0x48,
-	MONO_VARIANT_VECTOR = 0x1000,
-	MONO_VARIANT_ARRAY = 0x2000,
-	MONO_VARIANT_BYREF = 0x4000
-} MonoMarshalVariant;
-
-typedef struct {
-	guint16 max_domain;
-	/* domain_vtables is indexed by the domain id and the size is max_domain + 1 */
-	MonoVTable *domain_vtables[MONO_ZERO_LEN_ARRAY];
-} MonoClassRuntimeInfo;
-
-
-
-typedef struct {
-	struct {
-		guint32 first, count;
-	} property, event;
-
-	/* Initialized by a call to mono_class_setup_properties () */
-	MonoProperty *properties;
-
-	/* Initialized by a call to mono_class_setup_events () */
-	MonoEvent *events;
-
-	guint32    declsec_flags;	/* declarative security attributes flags */
-
-	/* Default values/RVA for fields */
-	/* Accessed using mono_class_get_field_default_value () / mono_field_get_data () */
-	MonoFieldDefaultValue *field_def_values;
-
-	GList      *nested_classes;
-} MonoClassExt;
-
-struct _MonoProperty {
-	MonoClass *parent;
-	const char *name;
-	MonoMethod *get;
-	MonoMethod *set;
-	guint32 attrs;
-};
-
-struct _MonoEvent {
-	MonoClass *parent;
-	const char *name;
-	MonoMethod *add;
-	MonoMethod *remove;
-	MonoMethod *raise;
-	MonoMethod **other;
-	guint32 attrs;
-};
-
-typedef struct MonoFieldDefaultValue {
-	/*
-	* If the field is constant, pointer to the metadata constant
-	* value.
-	* If the field has an RVA flag, pointer to the data.
-	* Else, invalid.
-	*/
-	const char      *data;
-
-	/* If the field is constant, the type of the constant. */
-	MonoTypeEnum     def_type;
-} MonoFieldDefaultValue;
-
-struct _GList {
-	gpointer data;
-	GList *next;
-	GList *prev;
-};
-
-typedef struct {
-	MonoObject object;
-	gint32 length;
-	gunichar2 chars[MONO_ZERO_LEN_ARRAY];
-} MonoString;
-
-typedef struct {
-	MonoObject obj;
-	/* bounds is NULL for szarrays */
-	MonoArrayBounds *bounds;
-	/* total number of elements of the array */
-	mono_array_size_t max_length;
-	/* we use double to ensure proper alignment on platforms that need it */
-	double vector[MONO_ZERO_LEN_ARRAY];
-} MonoArray;
-
-typedef struct {
-	mono_array_size_t length;
-	mono_array_lower_bound_t lower_bound;
-} MonoArrayBounds;
-
-struct _MonoAppDomain {
-	MonoMarshalByRefObject mbr;
-	MonoDomain *data;
-};
-
-typedef struct {
-	MonoObject obj;
-	MonoObject *identity;
-} MonoMarshalByRefObject;
-
-struct _MonoAppContext {
-	MonoObject obj;
-	gint32 domain_id;
-	gint32 context_id;
-	gpointer *static_data;
-};
-
-struct _MonoException {
-	MonoObject object;
-	/* Stores the IPs and the generic sharing infos
-	(vtable/MRGCTX) of the frames. */
-	MonoArray  *trace_ips;
-	MonoObject *inner_ex;
-	MonoString *message;
-	MonoString *help_link;
-	MonoString *class_name;
-	MonoString *stack_trace;
-	MonoString *remote_stack_trace;
-	gint32	    remote_stack_index;
-	gint32	    hresult;
-	MonoString *source;
-	MonoObject *_data;
-};
-
-struct _MonoGHashTable {
-	GHashFunc      hash_func;
-	GEqualFunc     key_equal_func;
-
-	Slot **table;
-	int   table_size;
-	int   in_use;
-	int   threshold;
-	int   last_rehash;
-	GDestroyNotify value_destroy_func, key_destroy_func;
-	MonoGHashGCType gc_type;
-};
-
-typedef enum {
-	MONO_HASH_CONSERVATIVE_GC,
-	MONO_HASH_KEY_GC,
-	MONO_HASH_VALUE_GC,
-	MONO_HASH_KEY_VALUE_GC /* note this is the OR of the other two values */
-} MonoGHashGCType;
-
-struct _MonoJitInfoTable
-{
-	MonoDomain	       *domain;
-	int			num_chunks;
-	MonoJitInfoTableChunk  *chunks[MONO_ZERO_LEN_ARRAY];
-};
-
-struct _MonoJitInfoTableChunk
-{
-	int		       refcount;
-	volatile int           num_elements;
-	volatile gint8        *last_code_end;
-	MonoJitInfo * volatile data[MONO_JIT_INFO_TABLE_CHUNK_SIZE];
 };
 
 struct _MonoJitInfo {
@@ -1213,32 +1255,6 @@ struct _MonoJitInfo {
 	/* There is an optional MonoGenericJitInfo after the clauses */
 };
 
-typedef struct {
-	guint32  flags;
-	gint32   exvar_offset;
-	gpointer try_start;
-	gpointer try_end;
-	gpointer handler_start;
-	union {
-		MonoClass *catch_class;
-		gpointer filter;
-	} data;
-} MonoJitExceptionInfo;
-
-typedef enum {
-	MONO_IMAGE_OK,
-	MONO_IMAGE_ERROR_ERRNO,
-	MONO_IMAGE_MISSING_ASSEMBLYREF,
-	MONO_IMAGE_IMAGE_INVALID
-} MonoImageOpenStatus;
-
-typedef enum {
-	MONO_SECURITY_MODE_NONE,
-	MONO_SECURITY_MODE_CORE_CLR,
-	MONO_SECURITY_MODE_CAS,
-	MONO_SECURITY_MODE_SMCS_HACK
-} MonoSecurityMode;
-
 
 
 
@@ -1254,6 +1270,7 @@ typedef MonoObject* (*mono_object_new_t)(MonoDomain *domain, MonoClass *klass);
 typedef void (*mono_runtime_object_init_t)(MonoObject *pthis);
 typedef void (*mono_security_set_mode_t)(MonoSecurityMode mode);
 typedef void (*mono_security_set_core_clr_platform_callback_t)(MonoCoreClrPlatformCB callback);
+
 
 mono_domain_assembly_open_t mono_domain_assembly_open;
 mono_assembly_open_t mono_assembly_open;
